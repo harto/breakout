@@ -254,7 +254,10 @@ function newGame() {
     lives = LIVES;
     paused = false;
     finished = false;
+    
     ball = new Ball();
+    paddle = new Paddle();
+
     bricks = [];
     for (var row = 0; row < BRICK_ROWS; row++) {
         for (var col = 0; col < BRICK_COLS; col++) {
@@ -276,7 +279,6 @@ $(function () {
         new Wall(SCREEN_W - WALL_W, 0, WALL_W, vWallHeight),
         new Wall(0, 0, SCREEN_W, WALL_H)
     ];
-    paddle = new Paddle();
 
     // reverse-lookup
     var keycodes = {};
