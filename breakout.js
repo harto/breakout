@@ -129,6 +129,17 @@ Ball.prototype = {
     }
 };
 
+/// base class for rectangular shapes
+
+function Rectangle() {}
+
+Rectangle.prototype.draw = function (ctx) {
+    ctx.save();
+    ctx.fillStyle = this.colour;
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+    ctx.restore();
+};
+
 /// paddle
 
 function Paddle() {
@@ -136,24 +147,14 @@ function Paddle() {
     this.h = PADDLE_H;
     this.x = (SCREEN_W - this.w) / 2;
     this.y = SCREEN_H - GUTTER_H - this.h;
+    this.colour = 'white';
 }
 
-Paddle.prototype = {
+Paddle.prototype = new Rectangle();
 
-    draw: function (ctx) {
-        ctx.save();
-        ctx.fillStyle = 'white';
-        ctx.fillRect(this.x, this.y, PADDLE_W, PADDLE_H);
-        ctx.restore();
-    },
-
-    move: function (direction) {
-        var x = this.x + direction * PADDLE_SPEED;
-        this.x = Math.min(Math.max(x, WALL_W), SCREEN_W - WALL_W - PADDLE_W);
-    }
-
-    // toString: function () {
-    // }
+Paddle.prototype.move = function (direction) {
+    var x = this.x + direction * PADDLE_SPEED;
+    this.x = Math.min(Math.max(x, WALL_W), SCREEN_W - WALL_W - PADDLE_W);
 };
 
 /// bricks
@@ -169,21 +170,11 @@ function Brick(col, row) {
     this.h = BRICK_H;
 }
 
-Brick.prototype = {
+Brick.prototype = new Rectangle();
 
-    draw: function (ctx) {
-        ctx.save();
-
-        ctx.fillStyle = this.colour;
-        ctx.fillRect(this.x, this.y, BRICK_W, BRICK_H);
-
-        ctx.restore();
-    },
-
-    toString: function () {
-        return 'Brick[x=' + this.x + ', y=' + this.y +
-               ', colour=' + this.colour + ', value=' + this.value + ']';
-    }
+Brick.prototype.toString = function () {
+    return 'Brick[x=' + this.x + ', y=' + this.y +
+           ', colour=' + this.colour + ', value=' + this.value + ']';
 };
 
 /// playing area
@@ -193,17 +184,10 @@ function Wall(x, y, w, h) {
     this.y = y;
     this.w = w;
     this.h = h;
+    this.colour = 'grey';
 }
 
-Wall.prototype = {
-
-    draw: function (ctx) {
-        ctx.save();
-        ctx.fillStyle = 'grey';
-        ctx.fillRect(this.x, this.y, this.w, this.h);
-        ctx.restore();
-    }
-};
+Wall.prototype = new Rectangle();
 
 /// engine
 
