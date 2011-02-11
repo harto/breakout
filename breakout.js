@@ -160,7 +160,7 @@ Paddle.prototype = {
 
 function Brick(col, row) {
     this.colour = ROW_COLOURS[BRICK_ROWS - 1 - row];
-    this.value = Math.floor(row / 2) + 1;
+    this.value = 2 * Math.floor(row / 2) + 1;
 
     this.x = WALL_W + col * BRICK_W;
     this.y = BOTTOM_ROW_Y - row * BRICK_H;
