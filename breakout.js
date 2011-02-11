@@ -66,86 +66,61 @@ var UPDATE_HZ = 20,
     paused,
     finished;
 
-/// misc
-
-var NORTH = 1,
-    SOUTH = 2,
-    EAST = 4,
-    WEST = 16;
-
-function within(x, min, max) {
-    return min <= x && x <= max;
-}
-
-/* Detect a collision and return the side(s) of `b` that `a` collided with
-   (some bitwise combination of NORTH, SOUTH, EAST and WEST). */
-function collision(a, b) {
-    var ax = a.x, ax2 = a.x + a.w,
-        ay = a.y, ay2 = a.y + a.h,
-        bx = b.x, bx2 = b.x + b.w,
-        by = b.y, by2 = b.y + b.h;
-
-    var collides = (within(ax, bx, bx2) || within(ax2, bx, bx2)) &&
-                   (within(ay, by, by2) || within(ay2, by, by2));
-
-    var collidesNorth = collides && ay < by ? NORTH : 0;
-    var collidesSouth = collides && by2 < ay2 ? SOUTH : 0;
-    var collidesWest = collides && ax < bx ? WEST : 0;
-    var collidesEast = collides && bx2 < ax2 ? EAST : 0;
-
-    return collidesNorth | collidesSouth | collidesEast | collidesWest;
-}
-
-/// vector-like data structure
-
-function Velocity(x, y) {
-    this.x = x;
-    this.y = y;
-}
-
-Velocity.prototype.deflect = function (direction) {
-    var x = this.x;
-    var y = this.y;
-
-    if (direction & NORTH) {
-        y = -Math.abs(y);
-    }
-    if (direction & SOUTH) {
-        y = Math.abs(y);
-    }
-    if (direction & EAST) {
-        x = Math.abs(x);
-    }
-    if (direction & WEST) {
-        x = -Math.abs(x);
-    }
-
-    return new Velocity(x, y);
-};
-
 /// ball
 
 function Ball() {
     this.x = (SCREEN_W - BALL_SIZE) / 2;
     this.y = SCREEN_H - (BOTTOM_ROW_Y + BRICK_H + BALL_SIZE + GUTTER_H) / 2;
-    this.w = this.h = BALL_SIZE;
-    this.radius = this.w / 2;
 
-    this.v = new Velocity(BALL_SPEED, -BALL_SPEED);
+    this.radius = BALL_SIZE / 2;
+
+    this.vx = BALL_SPEED;
+    this.vy = -BALL_SPEED;
 }
 
 Ball.prototype = {
 
     draw: function (ctx) {
         ctx.save();
+
         ctx.fillStyle = 'white';
-        ctx.fillCircle(this.x + this.radius, this.y + this.radius, this.radius);
+
+        ctx.beginPath();
+        ctx.arc(this.x + this.radius, this.y + this.radius, this.radius,
+                0, Math.PI * 2, true);
+        ctx.fill();
+        ctx.closePath();
+
         ctx.restore();
     },
 
     update: function () {
-        this.x += this.v.x;
-        this.y += this.v.y;
+        this.x += this.vx;
+        this.y += this.vy;
+    },
+
+    collision: function (o) {
+        var x = this.x, x2 = this.x + BALL_SIZE,
+            y = this.y, y2 = this.y + BALL_SIZE,
+            ox = o.x, ox2 = o.x + o.w,
+            oy = o.y, oy2 = o.y + o.h;
+
+        var collides = ((ox <= x && x <= ox2) || (ox <= x2 && x2 <= ox2)) &&
+                       ((oy <= y && y <= oy2) || (oy <= y2 && y2 <= oy2));
+
+        if (collides && x < ox) {
+            this.vx = -Math.abs(this.vx);
+        } else if (collides && ox2 < x2) {
+            this.vx = Math.abs(this.vx);
+        }
+
+        if (collides && y < oy) {
+            this.vy = -Math.abs(this.vy);
+        } else if (collides && oy2 < y2) {
+            this.vy = Math.abs(this.vy);
+        }
+
+        return collides;
     },
 
     toString: function () {
@@ -252,17 +227,12 @@ function update() {
     // process collisions
 
     walls.concat(paddle).forEach(function (o) {
-        var direction = collision(ball, o);
-        if (direction) {
-            ball.v = ball.v.deflect(direction);
-        }
+        ball.collision(o);
     });
 
     for (var i = 0; i < bricks.length; i++) {
         var brick = bricks[i];
-        var direction = collision(ball, brick);
-        if (direction) {
-            ball.v = ball.v.deflect(direction);
+        if (ball.collision(brick)) {
             score += brick.value;
             bricks.splice(i, 1);
             break;
@@ -309,22 +279,9 @@ function newGame() {
     timer = window.setTimeout(loop, UPDATE_DELAY);
 }
 
-// add higher-level functions to graphics ctx
-function extendGraphicsContext(ctx) {
-    var FULL_ARC = Math.PI * 2;
-    ctx.fillCircle = function (x, y, radius) {
-        this.beginPath();
-        this.arc(x, y, radius, 0, FULL_ARC, true);
-        this.fill();
-        this.closePath();
-    };
-}
-
 $(function () {
     var canvas = $('canvas').get(0);
-
     ctx = canvas.getContext('2d');
-    extendGraphicsContext(ctx);
 
     var vWallHeight = SCREEN_H - GUTTER_H;
     walls = [
