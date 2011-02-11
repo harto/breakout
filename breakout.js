@@ -55,11 +55,13 @@ var UPDATE_HZ = 20,
     BALL_SIZE = BRICK_W / 4,
     BALL_SPEED = PADDLE_SPEED / 2,
 
+    LIVES = 3,
+
     walls,
     paddle,
-
     bricks,
     ball,
+
     lives,
     level,
     score,
@@ -249,6 +251,7 @@ function newGame() {
     window.clearTimeout(timer);
 
     score = 0;
+    lives = LIVES;
     paused = false;
     finished = false;
     ball = new Ball();
@@ -321,7 +324,6 @@ $(function () {
 
     $(window).keyup(function (e) {
         var k = getKeyCode(e);
-
 
         switch (k) {
         case KEYS.moveLeft:
