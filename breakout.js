@@ -55,6 +55,7 @@ var UPDATE_HZ = 20,
     BALL_SIZE = BRICK_W / 4,
     BALL_SPEED = PADDLE_SPEED / 2,
 
+    REINSERT_DELAY = 2000,
     LIVES = 3,
 
     walls,
@@ -65,8 +66,18 @@ var UPDATE_HZ = 20,
     lives,
     level,
     score,
+
     paused,
-    finished;
+    state,
+    dropoutTime;
+
+/// game state
+
+var State = {
+    RUNNING: 1,
+    REINSERT: 2,
+    FINISHED: 3
+};
 
 /// ball
 
@@ -123,6 +134,10 @@ Ball.prototype = {
         }
 
         return collides;
+    },
+
+    outOfBounds: function () {
+        return SCREEN_H <= this.y;
     },
 
     toString: function () {
@@ -200,6 +215,21 @@ function draw(ctx) {
     walls.concat(bricks, ball, paddle).forEach(function (o) {
         o.draw(ctx);
     });
+
+    ctx.font = 'bold 10px Helvetica, Arial, sans-serif';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('Score: ' + score, 5, SCREEN_H - 21);
+    ctx.fillText('Lives: ' + lives, 5, SCREEN_H - 7);
+
+    // FIXME: make this look nicer
+    ctx.textAlign = 'center';
+    if (paused) {
+        ctx.fillText('<Paused>', SCREEN_W / 2, 2 * SCREEN_H / 3);
+    } else if (state === State.FINISHED) {
+        ctx.fillText('Game over\n:( :( :( :( :( :( :(', SCREEN_W / 2, 2 * SCREEN_H / 3);
+    }
 }
 
 var movingLeft = false,
@@ -227,8 +257,23 @@ function update() {
 
     // update state
 
-    ball.update();
     paddle.move(movingLeft ? -1 : movingRight ? 1 : 0);
+
+    switch (state) {
+    case State.RUNNING:
+        ball.update();
+        if (ball.outOfBounds()) {
+            state = (--lives === 0) ? State.FINISHED : State.REINSERT;
+            dropoutTime = +new Date();
+        }
+        break;
+    case State.REINSERT:
+        if (new Date() - dropoutTime >= REINSERT_DELAY) {
+            ball = new Ball();
+            state = State.RUNNING;
+        }
+        break;
+    }
 }
 
 var timer, nextLoopTime, ctx;
@@ -237,7 +282,7 @@ function loop() {
     update();
     draw(ctx);
 
-    if (!finished) {
+    if (state !== State.FINISHED) {
         nextLoopTime += UPDATE_DELAY;
         var delay = nextLoopTime - new Date();
         // TODO: recover if falling behind
@@ -252,9 +297,9 @@ function newGame() {
 
     score = 0;
     lives = LIVES;
+    state = State.RUNNING;
     paused = false;
-    finished = false;
-    
+
     ball = new Ball();
     paddle = new Paddle();
 
