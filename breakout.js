@@ -50,7 +50,7 @@ var UPDATE_HZ = 20,
 
     paused,
     state,
-    dropoutTime;
+    timeOfDeath;
 
 /// base class for rectangular shapes
 
@@ -123,53 +123,45 @@ Brick.init = function () {
 /// paddle
 
 function Paddle() {
-    this.w = Paddle.W;
-    this.h = Paddle.H;
+    this.w = 2 * Brick.W;
+    this.h = 2 / 3 * Brick.H;
     this.x = (SCREEN_W - this.w) / 2;
     this.y = SCREEN_H - Wall.VSPACE - this.h;
     this.colour = 'white';
 }
 
-Paddle.W = 2 * Brick.W;
-Paddle.H = 2 / 3 * Brick.H;
 Paddle.SPEED = 15;
 
 Paddle.prototype = new Rectangle();
 
 Paddle.prototype.move = function (direction) {
     var x = this.x + direction * Paddle.SPEED;
-    this.x = Math.min(Math.max(x, Wall.W), SCREEN_W - Wall.W - Paddle.W);
+    this.x = Math.min(Math.max(x, Wall.W), SCREEN_W - Wall.W - this.w);
 };
 
 /// ball
 
 function Ball() {
-    this.x = (SCREEN_W - Ball.SIZE) / 2;
-    this.y = SCREEN_H - (Brick.Y_OFFSET + Brick.ROWS * Brick.H + Ball.SIZE + Wall.VSPACE) / 2;
+    this.size = Brick.W / 4;
+    this.r = this.size / 2;
+    this.x = (SCREEN_W - this.size) / 2;
+    this.y = SCREEN_H - (Brick.Y_OFFSET + Brick.ROWS * Brick.H + this.size + Wall.VSPACE) / 2;
 
-    this.radius = Ball.SIZE / 2;
-
-    this.speed = Ball.SPEED;
+    this.speed = Paddle.SPEED / 2;
     this.angle(NORTH | EAST);
 }
 
-Ball.SIZE = Brick.W / 4;
-Ball.SPEED = Paddle.SPEED / 2;
 Ball.REINSERT_DELAY = 2000;
 
 Ball.prototype = {
 
     draw: function (ctx) {
         ctx.save();
-
         ctx.fillStyle = 'white';
-
         ctx.beginPath();
-        ctx.arc(this.x + this.radius, this.y + this.radius, this.radius,
-                0, Math.PI * 2, true);
+        ctx.arc(this.x + this.r, this.y + this.r, this.r, 0, Math.PI * 2, true);
         ctx.fill();
         ctx.closePath();
-
         ctx.restore();
     },
 
@@ -178,10 +170,10 @@ Ball.prototype = {
         this.y += this.vy;
     },
 
-    // compute angle of deflection from collision with object
+    // process collision with object and update angle accordingly
     collision: function (o) {
-        var x = this.x, x2 = this.x + Ball.SIZE,
-            y = this.y, y2 = this.y + Ball.SIZE,
+        var x = this.x, x2 = this.x + this.size,
+            y = this.y, y2 = this.y + this.size,
             ox = o.x, ox2 = o.x + o.w,
             oy = o.y, oy2 = o.y + o.h;
 
@@ -195,13 +187,8 @@ Ball.prototype = {
     },
 
     angle: function (d) {
-        this.vx = d & WEST ? -this.speed :
-                  d & EAST ? this.speed :
-                  this.vx;
-
-        this.vy = d & NORTH ? -this.speed :
-                  d & SOUTH ? this.speed :
-                  this.vy;
+        this.vx = d & WEST ? -this.speed : d & EAST ? this.speed : this.vx;
+        this.vy = d & NORTH ? -this.speed : d & SOUTH ? this.speed : this.vy;
     },
 
     outOfBounds: function () {
@@ -239,9 +226,6 @@ function draw(ctx) {
         ctx.fillText('Press <N> to restart', SCREEN_W / 2, 2 * SCREEN_H / 3);
     }
 }
-
-var movingLeft = false,
-    movingRight = false;
 
 function processCollisions() {
     // simple collision detection for walls
@@ -294,24 +278,24 @@ function processCollisions() {
     }
 }
 
+var movingLeft = false,
+    movingRight = false;
+
 function update() {
     paddle.move(movingLeft ? -1 : movingRight ? 1 : 0);
 
-    switch (state) {
-    case State.RUNNING:
+    if (state === State.RUNNING) {
         processCollisions();
         ball.update();
         if (ball.outOfBounds()) {
             state = (--lives === 0) ? State.FINISHED : State.REINSERT;
-            dropoutTime = +new Date();
+            timeOfDeath = +new Date();
         }
-        break;
-    case State.REINSERT:
-        if (new Date() - dropoutTime >= Ball.REINSERT_DELAY) {
+    } else if (state === State.REINSERT) {
+        if (new Date() - timeOfDeath >= Ball.REINSERT_DELAY) {
             ball = new Ball();
             state = State.RUNNING;
         }
-        break;
     }
 }
 
