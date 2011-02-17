@@ -14,50 +14,16 @@ function charCode(c) {
 var UPDATE_HZ = 20,
     UPDATE_DELAY = 1000 / UPDATE_HZ,
 
-    DEBUG = false,
-
     KEYS = {
         moveLeft:    37, // left arrow
         moveRight:   39, // right arrow
-
-        toggleDebug: charCode('D'),
         togglePause: charCode('P'),
         newGame:     charCode('N')
     },
 
-    BRICK_COLS = 14,
-    BRICK_ROWS = 8,
-
-    ROW_COLOURS = ['darkred',
-                   'red',
-                   'darkorange',
-                   'orange',
-                   'darkgreen',
-                   'green',
-                   'gold',
-                   'yellow'],
-
     SCREEN_W = 600,
     SCREEN_H = 400,
 
-    WALL_W = 20,
-    WALL_H = 20,
-    GUTTER_H = 2 * WALL_H,
-
-    BRICK_W = (SCREEN_W - 2 * WALL_W) / BRICK_COLS,
-    BRICK_H = 15,
-    // FIXME: consolidate
-    BRICK_Y_OFFSET = WALL_H + 3 * BRICK_H,
-    BOTTOM_ROW_Y = WALL_H + (BRICK_ROWS + 3) * BRICK_H,
-
-    PADDLE_W = 2 * BRICK_W,
-    PADDLE_H = 2 / 3 * BRICK_H,
-    PADDLE_SPEED = 15,
-
-    BALL_SIZE = BRICK_W / 4,
-    BALL_SPEED = PADDLE_SPEED / 2,
-
-    REINSERT_DELAY = 2000,
     LIVES = 3,
 
     // game states
@@ -86,17 +52,110 @@ var UPDATE_HZ = 20,
     state,
     dropoutTime;
 
+/// base class for rectangular shapes
+
+function Rectangle() {}
+
+Rectangle.prototype.draw = function (ctx) {
+    ctx.save();
+    ctx.fillStyle = this.colour;
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+    ctx.restore();
+};
+
+/// playing area
+
+function Wall(x, y, w, h) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.colour = 'grey';
+}
+
+Wall.W = 20;
+Wall.H = 20;
+Wall.VSPACE = 2 * Wall.H;
+
+Wall.prototype = new Rectangle();
+
+/// bricks
+
+function Brick(col, row) {
+    this.colour = Brick.ROW_COLOURS[row];
+    this.value = 2 * Math.floor(row / 2) + 1;
+
+    this.x = Wall.W + col * Brick.W;
+    this.y = Brick.Y_OFFSET + row * Brick.H;
+
+    this.w = Brick.W;
+    this.h = Brick.H;
+}
+
+Brick.ROW_COLOURS = ['darkred',
+                     'red',
+                     'darkorange',
+                     'orange',
+                     'darkgreen',
+                     'green',
+                     'gold',
+                     'yellow'];
+Brick.COLS = 14;
+Brick.ROWS = Brick.ROW_COLOURS.length;
+Brick.W = (SCREEN_W - 2 * Wall.W) / Brick.COLS;
+Brick.H = 15;
+Brick.Y_OFFSET = Wall.H + 3 * Brick.H;
+
+Brick.prototype = new Rectangle();
+
+Brick.init = function () {
+    var bricks = [];
+    for (var y = 0; y < Brick.ROWS; y++) {
+        var row = [];
+        for (var x = 0; x < Brick.COLS; x++) {
+            row.push(new Brick(x, y));
+        }
+        bricks.push(row);
+    }
+    return bricks;
+};
+
+/// paddle
+
+function Paddle() {
+    this.w = Paddle.W;
+    this.h = Paddle.H;
+    this.x = (SCREEN_W - this.w) / 2;
+    this.y = SCREEN_H - Wall.VSPACE - this.h;
+    this.colour = 'white';
+}
+
+Paddle.W = 2 * Brick.W;
+Paddle.H = 2 / 3 * Brick.H;
+Paddle.SPEED = 15;
+
+Paddle.prototype = new Rectangle();
+
+Paddle.prototype.move = function (direction) {
+    var x = this.x + direction * Paddle.SPEED;
+    this.x = Math.min(Math.max(x, Wall.W), SCREEN_W - Wall.W - Paddle.W);
+};
+
 /// ball
 
 function Ball() {
-    this.x = (SCREEN_W - BALL_SIZE) / 2;
-    this.y = SCREEN_H - (BOTTOM_ROW_Y + BRICK_H + BALL_SIZE + GUTTER_H) / 2;
+    this.x = (SCREEN_W - Ball.SIZE) / 2;
+    this.y = SCREEN_H - (Brick.Y_OFFSET + Brick.ROWS * Brick.H + Ball.SIZE + Wall.VSPACE) / 2;
 
-    this.radius = BALL_SIZE / 2;
+    this.radius = Ball.SIZE / 2;
 
-    this.speed = BALL_SPEED;
+    this.speed = Ball.SPEED;
     this.angle(NORTH | EAST);
 }
+
+Ball.SIZE = Brick.W / 4;
+Ball.SPEED = Paddle.SPEED / 2;
+Ball.REINSERT_DELAY = 2000;
 
 Ball.prototype = {
 
@@ -121,8 +180,8 @@ Ball.prototype = {
 
     // compute angle of deflection from collision with object
     collision: function (o) {
-        var x = this.x, x2 = this.x + BALL_SIZE,
-            y = this.y, y2 = this.y + BALL_SIZE,
+        var x = this.x, x2 = this.x + Ball.SIZE,
+            y = this.y, y2 = this.y + Ball.SIZE,
             ox = o.x, ox2 = o.x + o.w,
             oy = o.y, oy2 = o.y + o.h;
 
@@ -149,73 +208,6 @@ Ball.prototype = {
         return SCREEN_H <= this.y;
     }
 };
-
-/// base class for rectangular shapes
-
-function Rectangle() {}
-
-Rectangle.prototype.draw = function (ctx) {
-    ctx.save();
-    ctx.fillStyle = this.colour;
-    ctx.fillRect(this.x, this.y, this.w, this.h);
-    ctx.restore();
-};
-
-/// paddle
-
-function Paddle() {
-    this.w = PADDLE_W;
-    this.h = PADDLE_H;
-    this.x = (SCREEN_W - this.w) / 2;
-    this.y = SCREEN_H - GUTTER_H - this.h;
-    this.colour = 'white';
-}
-
-Paddle.prototype = new Rectangle();
-
-Paddle.prototype.move = function (direction) {
-    var x = this.x + direction * PADDLE_SPEED;
-    this.x = Math.min(Math.max(x, WALL_W), SCREEN_W - WALL_W - PADDLE_W);
-};
-
-/// bricks
-
-function Brick(col, row) {
-    this.colour = ROW_COLOURS[row];
-    this.value = 2 * Math.floor(row / 2) + 1;
-
-    this.x = WALL_W + col * BRICK_W;
-    this.y = BRICK_Y_OFFSET + row * BRICK_H;
-
-    this.w = BRICK_W;
-    this.h = BRICK_H;
-}
-
-Brick.prototype = new Rectangle();
-
-Brick.init = function () {
-    var bricks = [];
-    for (var y = 0; y < BRICK_ROWS; y++) {
-        var row = [];
-        for (var x = 0; x < BRICK_COLS; x++) {
-            row.push(new Brick(x, y));
-        }
-        bricks.push(row);
-    }
-    return bricks;
-};
-
-/// playing area
-
-function Wall(x, y, w, h) {
-    this.x = x;
-    this.y = y;
-    this.w = w;
-    this.h = h;
-    this.colour = 'grey';
-}
-
-Wall.prototype = new Rectangle();
 
 /// engine
 
@@ -253,12 +245,12 @@ var movingLeft = false,
 
 function processCollisions() {
     // simple collision detection for walls
-    if (ball.x <= WALL_W) {
+    if (ball.x <= Wall.W) {
         ball.angle(EAST);
-    } else if (SCREEN_W - WALL_W - BALL_SIZE < ball.x) {
+    } else if (SCREEN_W - Wall.W - Ball.SIZE < ball.x) {
         ball.angle(WEST);
     }
-    if (ball.y <= WALL_H) {
+    if (ball.y <= Wall.H) {
         ball.angle(SOUTH);
     }
 
@@ -267,9 +259,9 @@ function processCollisions() {
     // Determine which rows need per-brick inspection
     var rows = bricks.filter(function (_, i) {
         var by = ball.y,
-            by2 = ball.y + BALL_SIZE,
-            ry = BRICK_Y_OFFSET + i * BRICK_H,
-            ry2 = ry + BRICK_H;
+            by2 = ball.y + Ball.SIZE,
+            ry = Brick.Y_OFFSET + i * Brick.H,
+            ry2 = ry + Brick.H;
         return (ry <= by && by <= ry2) || (ry <= by2 && by2 <= ry2);
     });
 
@@ -287,11 +279,11 @@ function processCollisions() {
     var colInc = w2e ? 1 : -1;
 
     outer:
-    for (var y = rowStart; y != rowEnd; y += rowInc) {
+    for (var y = rowStart; y !== rowEnd; y += rowInc) {
         var row = rows[y];
         var colStart = w2e ? 0 : row.length - 1;
         var colEnd = w2e ? row.length : -1;
-        for (var x = colStart; x != colEnd; x += colInc) {
+        for (var x = colStart; x !== colEnd; x += colInc) {
             var brick = row[x];
             if (ball.collision(brick)) {
                 row.splice(x, 1);
@@ -315,7 +307,7 @@ function update() {
         }
         break;
     case State.REINSERT:
-        if (new Date() - dropoutTime >= REINSERT_DELAY) {
+        if (new Date() - dropoutTime >= Ball.REINSERT_DELAY) {
             ball = new Ball();
             state = State.RUNNING;
         }
@@ -361,11 +353,11 @@ $(function () {
     var canvas = $('canvas').get(0);
     ctx = canvas.getContext('2d');
 
-    var vWallHeight = SCREEN_H - GUTTER_H;
+    var vWallHeight = SCREEN_H - Wall.VSPACE;
     walls = [
-        new Wall(0, 0, WALL_W, vWallHeight),
-        new Wall(SCREEN_W - WALL_W, 0, WALL_W, vWallHeight),
-        new Wall(0, 0, SCREEN_W, WALL_H)
+        new Wall(0, 0, Wall.W, vWallHeight),
+        new Wall(SCREEN_W - Wall.W, 0, Wall.W, vWallHeight),
+        new Wall(0, 0, SCREEN_W, Wall.H)
     ];
 
     // reverse-lookup
@@ -400,9 +392,6 @@ $(function () {
             break;
         case KEYS.togglePause:
             paused = !paused;
-            break;
-        case KEYS.toggleDebug:
-            DEBUG = !DEBUG;
             break;
         case KEYS.newGame:
             newGame();
