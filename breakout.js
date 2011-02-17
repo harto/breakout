@@ -39,7 +39,7 @@ var UPDATE_HZ = 20,
     EAST = 4,
     WEST = 16,
 
-    walls,
+    boundary,
     paddle,
     bricks,
     ball,
@@ -79,6 +79,34 @@ Wall.VSPACE = 2 * Wall.H;
 
 Wall.prototype = new Rectangle();
 
+function Boundary() {
+    var vWallHeight = SCREEN_H - Wall.VSPACE;
+    this.walls = [
+        new Wall(0, 0, Wall.W, vWallHeight),
+        new Wall(SCREEN_W - Wall.W, 0, Wall.W, vWallHeight),
+        new Wall(0, 0, SCREEN_W, Wall.H)
+    ];
+}
+
+Boundary.prototype = {
+    draw: function (ctx) {
+        this.walls.forEach(function (wall) {
+            wall.draw(ctx);
+        });
+    },
+
+    applyCollisions: function (ball) {
+        if (ball.x <= Wall.W) {
+            ball.angle(EAST);
+        } else if (SCREEN_W - Wall.W - ball.size < ball.x) {
+            ball.angle(WEST);
+        }
+        if (ball.y <= Wall.H) {
+            ball.angle(SOUTH);
+        }
+    }
+};
+
 /// bricks
 
 function Brick(col, row) {
@@ -108,16 +136,64 @@ Brick.Y_OFFSET = Wall.H + 3 * Brick.H;
 
 Brick.prototype = new Rectangle();
 
-Brick.init = function () {
-    var bricks = [];
+function Stack() {
+    this.rows = [];
     for (var y = 0; y < Brick.ROWS; y++) {
         var row = [];
         for (var x = 0; x < Brick.COLS; x++) {
             row.push(new Brick(x, y));
         }
-        bricks.push(row);
+        this.rows.push(row);
     }
-    return bricks;
+}
+
+Stack.prototype = {
+    draw: function (ctx) {
+        this.rows.forEach(function (row) {
+            row.forEach(function (brick) {
+                brick.draw(ctx);
+            });
+        });
+    },
+
+    applyCollisions: function (ball) {
+        // Determine which rows need per-brick inspection
+        var rows = this.rows.filter(function (_, i) {
+            var by = ball.y,
+                by2 = ball.y + ball.size,
+                ry = Brick.Y_OFFSET + i * Brick.H,
+                ry2 = ry + Brick.H;
+            return (ry <= by && by <= ry2) || (ry <= by2 && by2 <= ry2);
+        });
+
+        // Traverse bricks according to the current direction of the ball. This
+        // resolves any ambiguity about the deflection angle or which brick to
+        // remove when the ball strikes two or more bricks at once.
+
+        var n2s = ball.vy > 0;
+        var w2e = ball.vx > 0;
+
+        var rowStart = n2s ? 0 : rows.length - 1;
+        var rowEnd = n2s ? rows.length : -1;
+        var rowInc = n2s ? 1 : -1;
+
+        var colInc = w2e ? 1 : -1;
+
+        outer:
+        for (var y = rowStart; y !== rowEnd; y += rowInc) {
+            var row = rows[y];
+            var colStart = w2e ? 0 : row.length - 1;
+            var colEnd = w2e ? row.length : -1;
+            for (var x = colStart; x !== colEnd; x += colInc) {
+                var brick = row[x];
+                if (ball.collision(brick)) {
+                    row.splice(x, 1);
+                    score += brick.value;
+                    break outer;
+                }
+            }
+        }
+    }
 };
 
 /// paddle
@@ -139,6 +215,10 @@ Paddle.prototype.move = function (direction) {
     this.x = Math.min(Math.max(x, Wall.W), SCREEN_W - Wall.W - this.w);
 };
 
+Paddle.prototype.applyCollisions = function (ball) {
+    ball.collision(this);
+};
+
 /// ball
 
 function Ball() {
@@ -154,7 +234,6 @@ function Ball() {
 Ball.REINSERT_DELAY = 2000;
 
 Ball.prototype = {
-
     draw: function (ctx) {
         ctx.save();
         ctx.fillStyle = 'white';
@@ -202,13 +281,8 @@ function draw(ctx) {
     ctx.fillStyle = 'black';
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
-    walls.concat(ball, paddle).forEach(function (o) {
+    [boundary, bricks, paddle, ball].forEach(function (o) {
         o.draw(ctx);
-    });
-    bricks.forEach(function (row) {
-        row.forEach(function (brick) {
-            brick.draw(ctx);
-        });
     });
 
     ctx.font = 'bold 10px Helvetica, Arial, sans-serif';
@@ -227,57 +301,6 @@ function draw(ctx) {
     }
 }
 
-function processCollisions() {
-    // simple collision detection for walls
-    if (ball.x <= Wall.W) {
-        ball.angle(EAST);
-    } else if (SCREEN_W - Wall.W - Ball.SIZE < ball.x) {
-        ball.angle(WEST);
-    }
-    if (ball.y <= Wall.H) {
-        ball.angle(SOUTH);
-    }
-
-    ball.collision(paddle);
-
-    // Determine which rows need per-brick inspection
-    var rows = bricks.filter(function (_, i) {
-        var by = ball.y,
-            by2 = ball.y + Ball.SIZE,
-            ry = Brick.Y_OFFSET + i * Brick.H,
-            ry2 = ry + Brick.H;
-        return (ry <= by && by <= ry2) || (ry <= by2 && by2 <= ry2);
-    });
-
-    // Traverse bricks according to the current direction of the ball. This
-    // resolves any ambiguity about the deflection angle or which brick to
-    // remove when the ball strikes two or more bricks at once.
-
-    var n2s = ball.vy > 0;
-    var w2e = ball.vx > 0;
-
-    var rowStart = n2s ? 0 : rows.length - 1;
-    var rowEnd = n2s ? rows.length : -1;
-    var rowInc = n2s ? 1 : -1;
-
-    var colInc = w2e ? 1 : -1;
-
-    outer:
-    for (var y = rowStart; y !== rowEnd; y += rowInc) {
-        var row = rows[y];
-        var colStart = w2e ? 0 : row.length - 1;
-        var colEnd = w2e ? row.length : -1;
-        for (var x = colStart; x !== colEnd; x += colInc) {
-            var brick = row[x];
-            if (ball.collision(brick)) {
-                row.splice(x, 1);
-                score += brick.value;
-                break outer;
-            }
-        }
-    }
-}
-
 var movingLeft = false,
     movingRight = false;
 
@@ -285,7 +308,9 @@ function update() {
     paddle.move(movingLeft ? -1 : movingRight ? 1 : 0);
 
     if (state === State.RUNNING) {
-        processCollisions();
+        [boundary, bricks, paddle].forEach(function (o) {
+            o.applyCollisions(ball);
+        });
         ball.update();
         if (ball.outOfBounds()) {
             state = (--lives === 0) ? State.FINISHED : State.REINSERT;
@@ -325,9 +350,9 @@ function newGame() {
     state = State.RUNNING;
     paused = false;
 
-    ball = new Ball();
+    bricks = new Stack();
     paddle = new Paddle();
-    bricks = Brick.init();
+    ball = new Ball();
 
     nextLoopTime = +new Date();
     timer = window.setTimeout(loop, UPDATE_DELAY);
@@ -337,12 +362,7 @@ $(function () {
     var canvas = $('canvas').get(0);
     ctx = canvas.getContext('2d');
 
-    var vWallHeight = SCREEN_H - Wall.VSPACE;
-    walls = [
-        new Wall(0, 0, Wall.W, vWallHeight),
-        new Wall(SCREEN_W - Wall.W, 0, Wall.W, vWallHeight),
-        new Wall(0, 0, SCREEN_W, Wall.H)
-    ];
+    boundary = new Boundary();
 
     // reverse-lookup
     var keycodes = {};
