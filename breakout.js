@@ -24,6 +24,8 @@ var UPDATE_HZ = 20,
     SCREEN_W = 600,
     SCREEN_H = 400,
 
+    TEXT_HEIGHT = 10,
+
     LIVES = 3,
 
     // game states
@@ -45,22 +47,53 @@ var UPDATE_HZ = 20,
     ball,
 
     lives,
-    level,
     score,
 
     paused,
     state,
     timeOfDeath;
 
+/// partial re-rendering
+
+var invalidated = [];
+
+// mark some area of the screen as requiring a redraw
+function invalidate(x, y, w, h) {
+    invalidated.push({ x: x, y: y, w: w, h: h });
+}
+
+function invalidateScreen() {
+    invalidate(0, 0, SCREEN_W, SCREEN_H);
+}
+
+/// miscellany
+
+function overlapping(ax, ay, aw, ah, bx, by, bw, bh) {
+    var ax2 = ax + aw, ay2 = ay + ah,
+        bx2 = bx + bw, by2 = by + bh;
+    return (// x-overlap
+            (((bx <= ax && ax <= bx2) || (bx <= ax2 && ax2 <= bx2)) ||
+             ((ax <= bx && bx <= ax2) || (ax <= bx2 && bx2 <= ax2))) &&
+           (// y-overlap
+            (((by <= ay && ay <= by2) || (by <= ay2 && ay2 <= by2))) ||
+             ((ay <= by && by <= ay2) || (ay <= by2 && by2 <= ay2))));
+}
+
 /// base class for rectangular shapes
 
 function Rectangle() {}
 
-Rectangle.prototype.draw = function (ctx) {
-    ctx.save();
-    ctx.fillStyle = this.colour;
-    ctx.fillRect(this.x, this.y, this.w, this.h);
-    ctx.restore();
+Rectangle.prototype = {
+    draw: function (ctx) {
+        ctx.save();
+        ctx.fillStyle = this.colour;
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        ctx.restore();
+    },
+
+    overlaps: function (x, y, w, h) {
+        return overlapping(this.x, this.y, this.w, this.h, x, y, w, h);
+    }
 };
 
 /// playing area
@@ -104,6 +137,43 @@ Boundary.prototype = {
         if (ball.y <= Wall.H) {
             ball.angle(SOUTH);
         }
+    },
+
+    overlaps: function (x, y, w, h) {
+        return this.walls.some(function (wall) {
+            return wall.overlaps(x, y, w, h);
+        });
+    }
+};
+
+var scoreboard = {
+    x: 0,
+    y: SCREEN_H - Wall.VSPACE,
+
+    // compute real width once text is rendered
+    w: SCREEN_W,
+    h: Wall.VSPACE,
+
+    draw: function (ctx) {
+        ctx.save();
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+
+        var scoreLine = 'Score: ' + score;
+        var livesLine = 'Lives: ' + lives;
+
+        ctx.fillText(scoreLine, this.x + 5, this.y + 9);
+        ctx.fillText(livesLine, this.x + 5, this.y + 23);
+
+        this.w = 10 + Math.max(ctx.measureText(scoreLine).width,
+                               ctx.measureText(livesLine).width);
+    },
+
+    overlaps: Rectangle.prototype.overlaps,
+
+    invalidate: function () {
+        invalidate(this.x, this.y, this.w, this.h);
     }
 };
 
@@ -187,12 +257,22 @@ Stack.prototype = {
             for (var x = colStart; x !== colEnd; x += colInc) {
                 var brick = row[x];
                 if (ball.collision(brick)) {
+                    invalidate(brick.x, brick.y, brick.w, brick.h);
                     row.splice(x, 1);
                     score += brick.value;
+                    scoreboard.invalidate();
                     break outer;
                 }
             }
         }
+    },
+
+    overlaps: function (x, y, w, h) {
+        return this.rows.some(function (row) {
+            return row.some(function (brick) {
+                return brick.overlaps(x, y, w, h);
+            });
+        });
     }
 };
 
@@ -211,10 +291,10 @@ Paddle.SPEED = 15;
 Paddle.prototype = new Rectangle();
 
 Paddle.prototype.move = function (direction) {
+    invalidate(this.x, this.y, this.w, this.h);
     var x = this.x + direction * Paddle.SPEED;
     this.x = Math.min(Math.max(x, Wall.W), SCREEN_W - Wall.W - this.w);
 };
-
 Paddle.prototype.applyCollisions = function (ball) {
     ball.collision(this);
 };
@@ -242,6 +322,8 @@ Ball.prototype = {
         ctx.fill();
         ctx.closePath();
         ctx.restore();
+        // FIXME: should this be here?
+        invalidate(this.x - 1, this.y - 1, this.size + 2, this.size + 2);
     },
 
     update: function () {
@@ -249,18 +331,23 @@ Ball.prototype = {
         this.y += this.vy;
     },
 
-    // process collision with object and update angle accordingly
+    // process possible collision with object and update angle accordingly
     collision: function (o) {
-        var x = this.x, x2 = this.x + this.size,
-            y = this.y, y2 = this.y + this.size,
-            ox = o.x, ox2 = o.x + o.w,
-            oy = o.y, oy2 = o.y + o.h;
+        var collides = overlapping(this.x, this.y, this.size, this.size,
+                                   o.x, o.y, o.w, o.h);
 
-        var collides = ((ox <= x && x <= ox2) || (ox <= x2 && x2 <= ox2)) &&
-                       ((oy <= y && y <= oy2) || (oy <= y2 && y2 <= oy2));
-
-        this.angle((!collides ? 0 : x < ox ? WEST : ox2 < x2 ? EAST : 0) |
-                   (!collides ? 0 : y < oy ? NORTH : oy2 < y2 ? SOUTH : 0));
+        if (collides) {
+            if (this.x < o.x) {
+                this.angle(WEST);
+            } else if (o.x + o.w < this.x + this.size) {
+                this.angle(EAST);
+            }
+            if (this.y < o.y) {
+                this.angle(NORTH);
+            } else if (o.y + o.h < this.y + this.size) {
+                this.angle(SOUTH);
+            }
+        }
 
         return collides;
     },
@@ -271,33 +358,47 @@ Ball.prototype = {
     },
 
     outOfBounds: function () {
-        return SCREEN_H <= this.y;
+        return SCREEN_H < this.y;
     }
 };
 
 /// engine
 
 function draw(ctx) {
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    // repaint background over invalidated regions
+    invalidated.forEach(function (r) {
+        ctx.fillStyle = 'black';
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+    });
 
-    [boundary, bricks, paddle, ball].forEach(function (o) {
+    // redraw elements that intersect at least one invalidated region
+    [boundary, bricks, paddle, scoreboard].filter(function (o) {
+        return invalidated.some(function (r) {
+            return o.overlaps(r.x, r.y, r.w, r.h);
+        });
+    }).forEach(function (o) {
         o.draw(ctx);
     });
 
-    ctx.font = 'bold 10px Helvetica, Arial, sans-serif';
-    ctx.fillStyle = 'white';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('Score: ' + score, 5, SCREEN_H - 21);
-    ctx.fillText('Lives: ' + lives, 5, SCREEN_H - 7);
+    invalidated = [];
 
-    // FIXME: make this look nicer
-    ctx.textAlign = 'center';
-    if (paused) {
-        ctx.fillText('<Paused>', SCREEN_W / 2, 2 * SCREEN_H / 3);
-    } else if (state === State.FINISHED) {
-        ctx.fillText('Press <N> to restart', SCREEN_W / 2, 2 * SCREEN_H / 3);
+    ball.draw(ctx);
+
+    if (paused || state === State.FINISHED) {
+        var text = paused ? '<Paused>' : 'Press <N> to restart';
+        var padding = 5;
+        var w = ctx.measureText(text).width + 2 * padding;
+        var h = TEXT_HEIGHT + 2 * padding;
+        var x = (SCREEN_W - w) / 2;
+        var y = (SCREEN_H - h) / 1.5;
+
+        ctx.fillStyle = 'white';
+        ctx.fillRect(x, y, w, h);
+
+        ctx.fillStyle = 'black';
+        ctx.textAlign = 'left';
+        ctx.verticalAlign = 'top';
+        ctx.fillText(text, x + padding, y + padding);
     }
 }
 
@@ -305,7 +406,9 @@ var movingLeft = false,
     movingRight = false;
 
 function update() {
-    paddle.move(movingLeft ? -1 : movingRight ? 1 : 0);
+    if (movingLeft || movingRight) {
+        paddle.move(movingLeft ? -1 : 1);
+    }
 
     if (state === State.RUNNING) {
         [boundary, bricks, paddle].forEach(function (o) {
@@ -314,7 +417,8 @@ function update() {
         ball.update();
         if (ball.outOfBounds()) {
             state = (--lives === 0) ? State.FINISHED : State.REINSERT;
-            timeOfDeath = +new Date();
+            scoreboard.invalidate();
+            timeOfDeath = new Date();
         }
     } else if (state === State.REINSERT) {
         if (new Date() - timeOfDeath >= Ball.REINSERT_DELAY) {
@@ -354,13 +458,24 @@ function newGame() {
     paddle = new Paddle();
     ball = new Ball();
 
+    invalidateScreen();
+
     nextLoopTime = +new Date();
     timer = window.setTimeout(loop, UPDATE_DELAY);
 }
 
+function togglePause() {
+    paused = !paused;
+    if (!paused) {
+        invalidateScreen();
+    }
+}
+
 $(function () {
     var canvas = $('canvas').get(0);
+
     ctx = canvas.getContext('2d');
+    ctx.font = 'bold ' + TEXT_HEIGHT + 'px Helvetica, Arial, sans-serif';
 
     boundary = new Boundary();
 
@@ -395,7 +510,7 @@ $(function () {
             movingRight = true;
             break;
         case KEYS.togglePause:
-            paused = !paused;
+            togglePause();
             break;
         case KEYS.newGame:
             newGame();
