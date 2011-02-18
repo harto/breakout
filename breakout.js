@@ -7,51 +7,17 @@
 
 /*global $, window */
 
-function charCode(c) {
-    return c.charCodeAt(0);
-}
-
-var UPDATE_HZ = 20,
-    UPDATE_DELAY = 1000 / UPDATE_HZ,
-
-    KEYS = {
-        moveLeft:    37, // left arrow
-        moveRight:   39, // right arrow
-        togglePause: charCode('P'),
-        newGame:     charCode('N')
-    },
-
-    SCREEN_W = 600,
+var SCREEN_W = 600,
     SCREEN_H = 400,
-
     TEXT_HEIGHT = 10,
 
-    LIVES = 3,
-
-    // game states
-    State = {
-        RUNNING: 1,
-        REINSERT: 2,
-        FINISHED: 3
-    },
-
-    // directions
     NORTH = 1,
     SOUTH = 2,
     EAST = 4,
     WEST = 16,
 
-    boundary,
-    paddle,
-    bricks,
-    ball,
-
     lives,
-    score,
-
-    paused,
-    state,
-    timeOfDeath;
+    score;
 
 /// partial re-rendering
 
@@ -112,16 +78,11 @@ Wall.VSPACE = 2 * Wall.H;
 
 Wall.prototype = new Rectangle();
 
-function Boundary() {
-    var vWallHeight = SCREEN_H - Wall.VSPACE;
-    this.walls = [
-        new Wall(0, 0, Wall.W, vWallHeight),
-        new Wall(SCREEN_W - Wall.W, 0, Wall.W, vWallHeight),
-        new Wall(0, 0, SCREEN_W, Wall.H)
-    ];
-}
+var boundary = {
+    walls: [new Wall(0, 0, Wall.W, SCREEN_H - Wall.VSPACE),
+            new Wall(SCREEN_W - Wall.W, 0, Wall.W, SCREEN_H - Wall.VSPACE),
+            new Wall(0, 0, SCREEN_W, Wall.H)],
 
-Boundary.prototype = {
     draw: function (ctx) {
         this.walls.forEach(function (wall) {
             wall.draw(ctx);
@@ -131,7 +92,7 @@ Boundary.prototype = {
     applyCollisions: function (ball) {
         if (ball.x <= Wall.W) {
             ball.angle(EAST);
-        } else if (SCREEN_W - Wall.W - ball.size < ball.x) {
+        } else if (SCREEN_W - Wall.W <= ball.x + ball.size) {
             ball.angle(WEST);
         }
         if (ball.y <= Wall.H) {
@@ -364,6 +325,20 @@ Ball.prototype = {
 
 /// engine
 
+var paddle,
+    bricks,
+    ball,
+
+    // game states
+    State = {
+        RUNNING: 1,
+        REINSERT: 2,
+        FINISHED: 3
+    },
+
+    state,
+    paused;
+
 function draw(ctx) {
     // repaint background over invalidated regions
     invalidated.forEach(function (r) {
@@ -402,8 +377,9 @@ function draw(ctx) {
     }
 }
 
-var movingLeft = false,
-    movingRight = false;
+var movingLeft,
+    movingRight,
+    timeOfDeath;
 
 function update() {
     if (movingLeft || movingRight) {
@@ -428,7 +404,11 @@ function update() {
     }
 }
 
-var timer, nextLoopTime, ctx;
+var UPDATE_HZ = 20,
+    UPDATE_DELAY = 1000 / UPDATE_HZ,
+    timer,
+    nextLoopTime,
+    ctx;
 
 function loop() {
     if (!paused) {
@@ -450,7 +430,7 @@ function newGame() {
     window.clearTimeout(timer);
 
     score = 0;
-    lives = LIVES;
+    lives = 3;
     state = State.RUNNING;
     paused = false;
 
@@ -477,13 +457,22 @@ $(function () {
     ctx = canvas.getContext('2d');
     ctx.font = 'bold ' + TEXT_HEIGHT + 'px Helvetica, Arial, sans-serif';
 
-    boundary = new Boundary();
+    function charCode(c) {
+        return c.charCodeAt(0);
+    }
+
+    var keys = {
+        moveLeft:    37, // left arrow
+        moveRight:   39, // right arrow
+        togglePause: charCode('P'),
+        newGame:     charCode('N')
+    };
 
     // reverse-lookup
     var keycodes = {};
-    for (var k in KEYS) {
-        if (KEYS.hasOwnProperty(k)) {
-            keycodes[KEYS[k]] = k;
+    for (var k in keys) {
+        if (keys.hasOwnProperty(k)) {
+            keycodes[keys[k]] = k;
         }
     }
 
@@ -503,16 +492,16 @@ $(function () {
         }
 
         switch (k) {
-        case KEYS.moveLeft:
+        case keys.moveLeft:
             movingLeft = true;
             break;
-        case KEYS.moveRight:
+        case keys.moveRight:
             movingRight = true;
             break;
-        case KEYS.togglePause:
+        case keys.togglePause:
             togglePause();
             break;
-        case KEYS.newGame:
+        case keys.newGame:
             newGame();
             break;
         default:
@@ -524,10 +513,10 @@ $(function () {
         var k = getKeyCode(e);
 
         switch (k) {
-        case KEYS.moveLeft:
+        case keys.moveLeft:
             movingLeft = false;
             break;
-        case KEYS.moveRight:
+        case keys.moveRight:
             movingRight = false;
             break;
         default:
