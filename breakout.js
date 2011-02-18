@@ -16,6 +16,7 @@ var SCREEN_W = 600,
     EAST = 4,
     WEST = 16,
 
+    paddle,
     lives,
     score;
 
@@ -47,7 +48,12 @@ function overlapping(ax, ay, aw, ah, bx, by, bw, bh) {
 
 /// base class for rectangular shapes
 
-function Rectangle() {}
+function Rectangle(x, y, w, h) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+}
 
 Rectangle.prototype = {
     draw: function (ctx) {
@@ -59,6 +65,10 @@ Rectangle.prototype = {
 
     overlaps: function (x, y, w, h) {
         return overlapping(this.x, this.y, this.w, this.h, x, y, w, h);
+    },
+
+    invalidate: function () {
+        invalidate(this.x, this.y, this.w, this.h);
     }
 };
 
@@ -91,12 +101,16 @@ var boundary = {
 
     applyCollisions: function (ball) {
         if (ball.x <= Wall.W) {
+            ball.x = Wall.W;
             ball.angle(EAST);
         } else if (SCREEN_W - Wall.W <= ball.x + ball.size) {
+            ball.x = SCREEN_W - Wall.W - ball.size;
             ball.angle(WEST);
         }
         if (ball.y <= Wall.H) {
+            ball.y = Wall.H;
             ball.angle(SOUTH);
+            paddle.shrink();
         }
     },
 
@@ -107,35 +121,22 @@ var boundary = {
     }
 };
 
-var scoreboard = {
-    x: 0,
-    y: SCREEN_H - Wall.VSPACE,
+var scoreboard = new Rectangle(0, SCREEN_H - Wall.VSPACE, SCREEN_W, Wall.VSPACE);
 
-    // compute real width once text is rendered
-    w: SCREEN_W,
-    h: Wall.VSPACE,
+scoreboard.draw = function (ctx) {
+    ctx.save();
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
 
-    draw: function (ctx) {
-        ctx.save();
-        ctx.fillStyle = 'white';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
+    var scoreLine = 'Score: ' + score;
+    var livesLine = 'Lives: ' + lives;
 
-        var scoreLine = 'Score: ' + score;
-        var livesLine = 'Lives: ' + lives;
+    ctx.fillText(scoreLine, this.x + 5, this.y + 9);
+    ctx.fillText(livesLine, this.x + 5, this.y + 23);
 
-        ctx.fillText(scoreLine, this.x + 5, this.y + 9);
-        ctx.fillText(livesLine, this.x + 5, this.y + 23);
-
-        this.w = 10 + Math.max(ctx.measureText(scoreLine).width,
-                               ctx.measureText(livesLine).width);
-    },
-
-    overlaps: Rectangle.prototype.overlaps,
-
-    invalidate: function () {
-        invalidate(this.x, this.y, this.w, this.h);
-    }
+    this.w = 10 + Math.max(ctx.measureText(scoreLine).width,
+                           ctx.measureText(livesLine).width);
 };
 
 /// bricks
@@ -172,7 +173,12 @@ function Stack() {
     for (var y = 0; y < Brick.ROWS; y++) {
         var row = [];
         for (var x = 0; x < Brick.COLS; x++) {
-            row.push(new Brick(x, y));
+            var brick = new Brick(x, y);
+            if (y === 1) {
+                // second-top row triggers speedup
+                brick.speedTrigger = true;
+            }
+            row.push(brick);
         }
         this.rows.push(row);
     }
@@ -201,8 +207,8 @@ Stack.prototype = {
         // resolves any ambiguity about the deflection angle or which brick to
         // remove when the ball strikes two or more bricks at once.
 
-        var n2s = ball.vy > 0;
-        var w2e = ball.vx > 0;
+        var n2s = ball.dy > 0;
+        var w2e = ball.dx > 0;
 
         var rowStart = n2s ? 0 : rows.length - 1;
         var rowEnd = n2s ? rows.length : -1;
@@ -218,10 +224,13 @@ Stack.prototype = {
             for (var x = colStart; x !== colEnd; x += colInc) {
                 var brick = row[x];
                 if (ball.collision(brick)) {
-                    invalidate(brick.x, brick.y, brick.w, brick.h);
                     row.splice(x, 1);
+                    invalidate(brick.x, brick.y, brick.w, brick.h);
                     score += brick.value;
                     scoreboard.invalidate();
+                    if (brick.speedTrigger) {
+                        ball.speedup();
+                    }
                     break outer;
                 }
             }
@@ -245,19 +254,33 @@ function Paddle() {
     this.x = (SCREEN_W - this.w) / 2;
     this.y = SCREEN_H - Wall.VSPACE - this.h;
     this.colour = 'white';
+    this.hits = 0;
 }
 
-Paddle.SPEED = 15;
+Paddle.SPEED = 10;
 
 Paddle.prototype = new Rectangle();
 
 Paddle.prototype.move = function (direction) {
-    invalidate(this.x, this.y, this.w, this.h);
+    this.invalidate();
     var x = this.x + direction * Paddle.SPEED;
     this.x = Math.min(Math.max(x, Wall.W), SCREEN_W - Wall.W - this.w);
 };
 Paddle.prototype.applyCollisions = function (ball) {
-    ball.collision(this);
+    if (ball.collision(this)) {
+        ++this.hits;
+        if (this.hits === 4 || this.hits === 12) {
+            ball.speedup();
+        }
+    }
+};
+Paddle.prototype.shrink = function () {
+    if (!this.shrunk) {
+        this.invalidate();
+        this.w /= 2;
+        this.x += this.w / 2;
+        this.shrunk = true;
+    }
 };
 
 /// ball
@@ -265,16 +288,22 @@ Paddle.prototype.applyCollisions = function (ball) {
 function Ball() {
     this.size = Brick.W / 4;
     this.r = this.size / 2;
-    this.x = (SCREEN_W - this.size) / 2;
-    this.y = SCREEN_H - (Brick.Y_OFFSET + Brick.ROWS * Brick.H + this.size + Wall.VSPACE) / 2;
 
     this.speed = Paddle.SPEED / 2;
-    this.angle(NORTH | EAST);
+    this.speedups = 0;
+
+    this.reset();
 }
 
 Ball.REINSERT_DELAY = 2000;
 
 Ball.prototype = {
+    reset: function () {
+        this.x = (SCREEN_W - this.size) / 2;
+        this.y = SCREEN_H - (Brick.Y_OFFSET + Brick.ROWS * Brick.H + this.size + Wall.VSPACE) / 2;
+        this.angle(NORTH | EAST);
+    },
+
     draw: function (ctx) {
         ctx.save();
         ctx.fillStyle = 'white';
@@ -288,8 +317,8 @@ Ball.prototype = {
     },
 
     update: function () {
-        this.x += this.vx;
-        this.y += this.vy;
+        this.x += this.dx * this.speed;
+        this.y += this.dy * this.speed;
     },
 
     // process possible collision with object and update angle accordingly
@@ -298,24 +327,26 @@ Ball.prototype = {
                                    o.x, o.y, o.w, o.h);
 
         if (collides) {
-            if (this.x < o.x) {
-                this.angle(WEST);
-            } else if (o.x + o.w < this.x + this.size) {
-                this.angle(EAST);
-            }
-            if (this.y < o.y) {
-                this.angle(NORTH);
-            } else if (o.y + o.h < this.y + this.size) {
-                this.angle(SOUTH);
-            }
+            this.angle((this.x < o.x ? WEST :
+                        o.x + o.w < this.x + this.size ? EAST :
+                        0) |
+                       (this.y < o.y ? NORTH :
+                        o.y + o.h < this.y + this.size ? SOUTH :
+                        0));
         }
 
         return collides;
     },
 
     angle: function (d) {
-        this.vx = d & WEST ? -this.speed : d & EAST ? this.speed : this.vx;
-        this.vy = d & NORTH ? -this.speed : d & SOUTH ? this.speed : this.vy;
+        this.dx = d & WEST ? -1 : d & EAST ? 1 : this.dx;
+        this.dy = d & NORTH ? -1 : d & SOUTH ? 1 : this.dy;
+    },
+
+    speedup: function () {
+        if (this.speedups++ < 3) {
+            this.speed *= 1.2;
+        }
     },
 
     outOfBounds: function () {
@@ -325,8 +356,7 @@ Ball.prototype = {
 
 /// engine
 
-var paddle,
-    bricks,
+var bricks,
     ball,
 
     // game states
@@ -398,13 +428,13 @@ function update() {
         }
     } else if (state === State.REINSERT) {
         if (new Date() - timeOfDeath >= Ball.REINSERT_DELAY) {
-            ball = new Ball();
+            ball.reset();
             state = State.RUNNING;
         }
     }
 }
 
-var UPDATE_HZ = 20,
+var UPDATE_HZ = 30,
     UPDATE_DELAY = 1000 / UPDATE_HZ,
     timer,
     nextLoopTime,
