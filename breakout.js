@@ -441,6 +441,9 @@ var UPDATE_HZ = 30,
     ctx;
 
 function loop() {
+    // TODO: if another loop has already been scheduled
+    // (nextLoopTime > now?), drop this frame
+
     if (!paused) {
         update();
     }
@@ -449,7 +452,6 @@ function loop() {
     if (state !== State.FINISHED) {
         nextLoopTime += UPDATE_DELAY;
         var delay = nextLoopTime - new Date();
-        // TODO: recover if falling behind
         timer = window.setTimeout(loop, Math.max(0, delay));
     }
 }
