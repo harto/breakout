@@ -5,7 +5,7 @@ set -e
 
 # Ships current branch to gh-pages, clobbering whatever's currently there
 
-DEPLOYABLE_FILES="index.html breakout.js"
+DEPLOYABLE_FILES="index.html breakout.js breakout.css"
 PREVIOUS_REF=$(git rev-parse --abbrev-ref HEAD)
 
 git branch -D gh-pages >/dev/null 2>&1 || true
