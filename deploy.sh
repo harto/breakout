@@ -3,24 +3,32 @@
 set -x
 set -e
 
-# Clobber gh-pages with files from current tree
+# Deploys a directory to github.io by jamming it into the `gh-pages` branch.
 
-DEPLOYABLE_FILES=$@
+BUILD=$(cd $1; pwd) # resolve absolute path
+
 SHA=$(git rev-parse HEAD)
-PREV_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+ORIGIN=$(git config --get remote.origin.url)
+
+WORKING=".deploy-$SHA"
+
+# Clone into a tmp directory, where we can mess around with impunity
+git clone . $WORKING
+cd $WORKING
 
 # Prepare pristine gh-pages branch
 git branch -D gh-pages >/dev/null 2>&1 || true
-git checkout --orphan gh-pages master
-git rm --cached -r .
+git checkout --orphan gh-pages
+git rm -rf .
 
 # Commit deployable files
-git add $DEPLOYABLE_FILES
+cp $BUILD/* .
+git add -A
 
 # Clobber remote gh-pages
 git commit -m "Build $SHA"
-git push -f git@github.com:harto/breakout.git gh-pages
+git push -f $ORIGIN gh-pages
 
-# Return to previous branch
-git clean -df
-git checkout $PREV_BRANCH
+# Clean up
+cd -
+rm -rf $WORKING
